@@ -1,60 +1,59 @@
 module Main where
 
-type ProjectIdeaId = ContractId ProjectIdea
-type ProjectId = ContractId Project
+import DA.Set (Set)
+import DA.Optional qualified as Optional
+import DA.Set qualified as Set
 
-template ProjectIdea
+type FiefId = ContractId Fief
+
+template Fief
     with
-        employee : Party
-        colleague : Party
-        manager : Party
-        project : Text
-        note : Text
+        king : Party
+        noble : Party
+        all_nobles : Set Party 
+        split_from : Optional FiefId
+        serfs : Set Party
     where 
-        signatory employee
-        observer colleague, manager
+        signatory king
+        observer all_nobles `Set.union` serfs
+        -- Rigid class :(
+        ensure Set.member king all_nobles
+            && Set.member noble all_nobles
+            && Set.intersection serfs all_nobles == Set.empty
+            -- King is original noble
+            && (Optional.isSome split_from || (noble == king))
 
-        -- employee can propose a project idea 
-        choice Propose : ProjectIdeaId -- "ProjectIdeaId" replaces "ContractId ProjectIdea"
-            controller employee
-            do
-                create this
-
-        -- upon getting rejected, employee can revise the project idea
-        choice Revise : ProjectIdeaId
+        -- | Split the fiefdom in two
+        choice Split : (FiefId, FiefId)
             with
-                newProject : Text
-                newNote : Text 
-            controller employee
+              newNoble : Party
+              newSerfs : Set Party
+            controller noble
             do
+                -- Only draw from existing serfs
+                guard $ (newSerfs `Set.union` this.serfs) == this.serfs
+                a <- create this with
+                    serfs = this.serfs `Set.difference` newSerfs
+                    split_from = Some self
+                b <- create this with
+                    serfs = newSerfs
+                    noble = newNoble
+                    split_from = Some self
+                pure (a, b)
+
+        nonconsuming choice Fight : FiefId 
+            with
+               otherId : FiefId
+               -- TODO in future version, 
+               -- the king will declare winner, in lieu of RNG
+               whoWins : Bool
+            controller noble
+            do 
+                other <- fetch otherId
+                guard $ other.noble /= this.noble
+                guard $ other.king == this.king
+                guard $ other.all_nobles == this.all_nobles
+                archive $ if whoWins then otherId else self
                 create this with
-                    project = newProject
-                    note = newNote
-
-        -- manager can reject the project idea
-        choice Reject : ProjectIdeaId 
-            with
-                feedback : Text
-            controller manager
-            do
-                create this with 
-                    note = feedback 
-        
-        -- manager can accept the project idea, which will archive the project that the choice is being exercised and create a new contract
-        choice Accept : ProjectId
-            controller manager
-            do
-                create Project with
-                    employeeInContract = employee
-                    managerInContract = manager
-                    projectTitle = project 
-                    description = note 
-
-template Project
-    with 
-        employeeInContract : Party
-        managerInContract : Party
-        projectTitle : Text 
-        description : Text 
-    where
-        signatory employeeInContract, managerInContract
+                    serfs = this.serfs `Set.union` other.serfs
+                    noble = if whoWins then other.noble else this.noble

@@ -2,28 +2,74 @@ module Test where
 import Main
 import Daml.Script
 
-setup : Script ProjectId
+import DA.Set (Set)
+import DA.Set qualified as Set
+
+setup : Script ()
 setup = do 
-    alice <- allocatePartyWithHint "Alice" (PartyIdHint "Alice")
-    bob <- allocatePartyWithHint "Bob" (PartyIdHint "Bob")
-    charlie <- allocatePartyWithHint "Charlie" (PartyIdHint "Charlie")
+    alice <- allocatePartyWithHint "Alice" $ PartyIdHint "Alice"
+    nobles <- mapA
+        (\x -> allocatePartyWithHint x $ PartyIdHint x)
+        ["Bob", "Bill"]
+    let [bob, bill] = nobles
 
-    bobProjectIdea <- submit bob do
-        createCmd ProjectIdea with
-            employee = bob
-            colleague = charlie
-            manager = alice
-            project = "Daml Fundamentals Certification Capstone Rubric - Draft No. 1"
-            note = "Should include both backend AND frontend"
+    let king_and_nobles : Set Party
+        king_and_nobles = Set.insert alice $ Set.fromList nobles
 
-    aliceRejects <- submit alice do 
-        exerciseCmd bobProjectIdea Reject with
-            feedback = "No way, teaching frontend at this point is too much"
+    serfs <- mapA
+        (\x -> allocatePartyWithHint x $ PartyIdHint x)
+        ["Charlie", "Chad", "Christine", "Cinthy", "Cedrick"]
+    let [charlie, chad, christine, cinthy, cedrick] = serfs
     
-    bobRevises <- submit bob do
-        exerciseCmd aliceRejects Revise with
-            newProject = "Daml Fundamentals Certification Capstone Rubric - Draft No.2"
-            newNote = "Agreed, let's focus on the Daml backend and Navigator"
+    orig <- submit alice do
+        createCmd Fief with
+            king = alice
+            noble = alice
+            split_from = None
+            all_nobles = king_and_nobles
+            serfs = Set.fromList serfs
 
-    submit alice do
-        exerciseCmd bobRevises Accept
+    -- original noble must be king
+    submitMustFail alice do
+        createCmd Fief with
+            king = alice
+            noble = bob
+            split_from = None
+            all_nobles = king_and_nobles
+            serfs = Set.fromList serfs    
+
+    -- original noble can't be serf
+    submitMustFail charlie do
+        createCmd Fief with
+            king = charlie
+            noble = charlie
+            split_from = None
+            all_nobles = king_and_nobles
+            serfs = Set.fromList serfs  
+
+    -- -- view land bound to
+    -- submit charlie do
+    --     f <- fetch orig
+    --     guard $ charlie `Set.member` f.serfs
+
+    (royalRemaining0, bobFief0) <- submit alice do
+        exerciseCmd orig Split with
+           newNoble = bob
+           newSerfs = Set.fromList [chad, christine]
+
+    (royalRemaining1, billFief) <- submit alice do
+        exerciseCmd royalRemaining0 Split with
+           newNoble = bill
+           newSerfs = Set.fromList [cinthy, cedrick]
+    
+    bobFief1 <- submit bob do
+        exerciseCmd bobFief0 Fight with
+           otherId = billFief
+           whoWins = False
+
+    pure ()
+
+    -- -- Bob won
+    -- guard $ bobFief1.noble == bob
+    -- -- Bob got all serfs
+    -- guard $ bobFief1.serfs == bobFief0.serfs `Set.union` billFief.serfs
