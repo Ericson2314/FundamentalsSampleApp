@@ -10,8 +10,8 @@ setup = do
     alice <- allocatePartyWithHint "Alice" $ PartyIdHint "Alice"
     nobles <- mapA
         (\x -> allocatePartyWithHint x $ PartyIdHint x)
-        ["Bob", "Bill"]
-    let [bob, bill] = nobles
+        ["Bob", "Bill", "Boris"]
+    let [bob, bill, boris] = nobles
 
     let king_and_nobles : Set Party
         king_and_nobles = Set.insert alice $ Set.fromList nobles
@@ -57,19 +57,32 @@ setup = do
            newNoble = bob
            newSerfs = Set.fromList [chad, christine]
 
-    (royalRemaining1, billFief) <- submit alice do
+    (royalRemaining1, billFief0) <- submit alice do
         exerciseCmd royalRemaining0 Split with
            newNoble = bill
            newSerfs = Set.fromList [cinthy, cedrick]
-    
+
+    -- non-King and also split
+    (billFief1, borisFief) <- submit bill do
+        exerciseCmd billFief0 Split with
+           newNoble = boris
+           newSerfs = Set.fromList [cedrick]
+
+
+    -- Can't fight oneself
+    submitMustFail bob do
+        exerciseCmd bobFief0 Fight with
+           otherId = bobFief0
+           whoWins = False
+
     bobFief1 <- submit bob do
         exerciseCmd bobFief0 Fight with
-           otherId = billFief
+           otherId = billFief1
            whoWins = False
 
     pure ()
 
     -- -- Bob won
     -- guard $ bobFief1.noble == bob
-    -- -- Bob got all serfs
-    -- guard $ bobFief1.serfs == bobFief0.serfs `Set.union` billFief.serfs
+    -- -- Bob got more serfs
+    -- guard $ bobFief1.serfs == bobFief0.serfs `Set.union` billFief1.serfs
